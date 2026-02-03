@@ -5,4 +5,4 @@ resource "elves_rule" "TestCEL" {
   custommessage = "thsi is test message"
   isdefault     = true
   celexpression = "aaabbbddd"
- }
+}
