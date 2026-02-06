@@ -2,7 +2,7 @@
 
 The Terraform elves provider is a plugin for Terraform that allows for the full lifecycle management of elves resources.
 
-Provider was written by David Kraushuber from FREENOW and was open sourced to the comunity.
+Provider was written by David Kraushuber from Freenow and was open sourced to the comunity.
 
 ## Using the Provider
 
@@ -19,4 +19,4 @@ provider to build your own elves infrastructure.Provider's official documentatio
 
 ## Know issues
 
--app assignemnt is not exactly working as expected because of missing data from API (changes requested already), currently there will be always diff in app assignement.
+N/A
