@@ -3,12 +3,12 @@
 page_title: "elves_rule Data Source - elves"
 subcategory: ""
 description: |-
-  Rule resourse can be used to manage elves rule. Can be used together with configurations.
+  Rule data source reads an existing elves rule by its ID.
 ---
 
 # elves_rule (Data Source)
 
-Rule resourse can be used to manage elves rule. Can be used together with configurations.
+Rule data source reads an existing elves rule by its ID.
 
 ## Example Usage
 
@@ -23,16 +23,16 @@ data "elves_rule" "myrule" {
 
 ### Required
 
-- `custommessage` (String) Required. Message shown to user if app is blocked.
-- `identifier` (String) Required. Identifier of the binary
-- `policy` (String) Required. ALLOWLIST_COMPILER, ALLOWLIST, BLOCKLIST, SILENT_BLOCKLIST or CEL
-- `ruletype` (String) Required. BINARY, CERTIFICATE, TEAMID, SIGNINGID or CDHASH
-
-### Optional
-
-- `celexpression` (String) Optiopnal. CEL expression
-- `isdefault` (Boolean) Optional. Marking rule and Default rule, default to true.
+- `id` (String) Required. ID of a rule in Elves
 
 ### Read-Only
 
-- `id` (String) ID of a rule in Elves
+- `celexpression` (String) CEL expression
+- `custommessage` (String) Message Santa shows in the block dialog on the Mac when this rule blocks an app. Keep it short, it has to fit the dialog.
+- `description` (String) Longer explanation of why the app is blocked, shown on the Elves rules page that opens from the button in Santa's block dialog. Never sent to Santa. When empty, that page shows `custommessage` instead, so only set it when the page should say more than the dialog.
+- `identifier` (String) Identifier of the binary
+- `isdefault` (Boolean) Whether the rule is a Default rule.
+- `policy` (String) ALLOWLIST_COMPILER, ALLOWLIST, BLOCKLIST, SILENT_BLOCKLIST or CEL
+- `remediation_instructions` (String) What the user can do instead (for example an approved alternative or how to get access), shown on the Elves rules page below the description. Never sent to Santa.
+- `remediation_script` (String) Script the user can copy and run in Terminal to fix the problem, shown on the Elves rules page.
+- `ruletype` (String) BINARY, CERTIFICATE, TEAMID, SIGNINGID or CDHASH

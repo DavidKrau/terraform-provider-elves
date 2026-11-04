@@ -15,11 +15,11 @@ func TestAccRuleDataSource(t *testing.T) {
 				Config: providerConfig + `data "elves_rule" "test" {id = "5"}`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// Verify returned values
-					resource.TestCheckResourceAttr("elves_rule.rule", "ruletype", "BINARY"),
-					resource.TestCheckResourceAttr("elves_rule.rule", "policy", "ALLOWLIST_COMPILER"),
-					resource.TestCheckResourceAttr("elves_rule.rule", "identifier", "wergwer"),
-					resource.TestCheckResourceAttr("elves_rule.rule", "custommessage", "gergewrg"),
-					resource.TestCheckResourceAttr("elves_rule.rule", "isdefault", "true"),
+					resource.TestCheckResourceAttr("data.elves_rule.test", "ruletype", "BINARY"),
+					resource.TestCheckResourceAttr("data.elves_rule.test", "policy", "ALLOWLIST_COMPILER"),
+					resource.TestCheckResourceAttr("data.elves_rule.test", "identifier", "wergwer"),
+					resource.TestCheckResourceAttr("data.elves_rule.test", "custommessage", "gergewrg"),
+					resource.TestCheckResourceAttr("data.elves_rule.test", "isdefault", "true"),
 				),
 			},
 		},

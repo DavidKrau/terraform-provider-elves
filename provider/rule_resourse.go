@@ -33,6 +33,10 @@ type ruleResourceModel struct {
 	CustomMessage types.String `tfsdk:"custommessage"`
 	IsDefault     types.Bool   `tfsdk:"isdefault"`
 	ID            types.String `tfsdk:"id"`
+
+	Description             types.String `tfsdk:"description"`
+	RemediationInstructions types.String `tfsdk:"remediation_instructions"`
+	RemediationScript       types.String `tfsdk:"remediation_script"`
 }
 
 // ruleResource is a helper function to simplify the provider implementation.
@@ -62,7 +66,7 @@ func (r *ruleResource) Metadata(_ context.Context, req resource.MetadataRequest,
 // Schema defines the schema for the resource.
 func (r *ruleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Rule resourse can be used to manage elves rule. Can be used together with configurations.",
+		Description: "Manages an Elves (Santa) rule. `custommessage` is what Santa shows in its block dialog on the Mac; `description`, `remediation_instructions` and `remediation_script` are only shown on the Elves rules page that the dialog's button opens.",
 		Attributes: map[string]schema.Attribute{
 			"ruletype": schema.StringAttribute{
 				Required:    true,
@@ -93,7 +97,7 @@ func (r *ruleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"custommessage": schema.StringAttribute{
 				Optional:    false,
 				Required:    true,
-				Description: "Required. Message shown to user if app is blocked.",
+				Description: "Required. Message Santa shows in the block dialog on the Mac when this rule blocks an app. Keep it short, it has to fit the dialog.",
 			},
 			"isdefault": schema.BoolAttribute{
 				Optional:    true,
@@ -107,6 +111,29 @@ func (r *ruleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Description: "ID of a rule in Elves",
+			},
+			"description": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+				Description: "Optional. Longer explanation of why the app is blocked, shown on the Elves rules page that opens from the button in Santa's block dialog. Never sent to Santa. When empty, that page shows `custommessage` instead, so only set it when the page should say more than the dialog. When not set here, the value from the Elves UI is kept; set it to `\"\"` to clear it.",
+			},
+			"remediation_instructions": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+				Description: "Optional. What the user can do instead (for example an approved alternative or how to get access), shown on the Elves rules page below the description. Never sent to Santa. When not set here, the value from the Elves UI is kept; set it to `\"\"` to clear it.",
+			},
+			"remediation_script": schema.StringAttribute{
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+				Description: "Script the user can copy and run in Terminal to fix the problem, shown on the Elves rules page. Read-only: Elves only lets a logged-in admin change it in the UI, not an API key, so Terraform keeps whatever is set there.",
 			},
 		},
 	}
@@ -129,12 +156,14 @@ func (r *ruleResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 	// Generate API request body from plan
 	ruleCreateRequest := elves.Rule{
-		RuleType:   plan.RuleType.ValueString(),
-		Policy:     plan.Policy.ValueString(),
-		Identifier: plan.Identifier.ValueString(),
-		CustomMsg:  plan.CustomMessage.ValueString(),
-		CelExpr:    plan.CelExpression.ValueString(),
-		IsDefault:  plan.IsDefault.ValueBool(),
+		RuleType:                plan.RuleType.ValueString(),
+		Policy:                  plan.Policy.ValueString(),
+		Identifier:              plan.Identifier.ValueString(),
+		CustomMsg:               plan.CustomMessage.ValueString(),
+		CelExpr:                 plan.CelExpression.ValueString(),
+		IsDefault:               plan.IsDefault.ValueBool(),
+		Description:             plan.Description.ValueString(),
+		RemediationInstructions: plan.RemediationInstructions.ValueString(),
 	}
 	rule, err := r.client.RuleCreate(&ruleCreateRequest)
 	if err != nil {
@@ -146,6 +175,9 @@ func (r *ruleResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 
 	plan.ID = types.StringValue(strconv.Itoa(int(rule.ID)))
+	plan.Description = types.StringValue(rule.Description)
+	plan.RemediationInstructions = types.StringValue(rule.RemediationInstructions)
+	plan.RemediationScript = types.StringValue(rule.RemediationScript)
 
 	// Set state to fully populated data
 	diags = resp.State.Set(ctx, plan)
@@ -187,6 +219,9 @@ func (r *ruleResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	state.IsDefault = types.BoolValue(rule.IsDefault)
 	state.Policy = types.StringValue(rule.Policy)
 	state.RuleType = types.StringValue(rule.RuleType)
+	state.Description = types.StringValue(rule.Description)
+	state.RemediationInstructions = types.StringValue(rule.RemediationInstructions)
+	state.RemediationScript = types.StringValue(rule.RemediationScript)
 
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -204,22 +239,35 @@ func (r *ruleResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 
-	// Generate API request body from plan
-	ruleUpdateRequest := elves.Rule{
-		RuleType:   plan.RuleType.ValueString(),
-		Policy:     plan.Policy.ValueString(),
-		Identifier: plan.Identifier.ValueString(),
-		CustomMsg:  plan.CustomMessage.ValueString(),
-		CelExpr:    plan.CelExpression.ValueString(),
-		IsDefault:  plan.IsDefault.ValueBool(),
+	// The update replaces the whole rule, and Elves refuses a changed script
+	// from an API key, so send back the script it has now
+	current, err := r.client.RuleGet(plan.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error updating rule",
+			"Could not read rule before updating it, unexpected error: "+err.Error(),
+		)
+		return
 	}
 
 	// Generate API request body from plan
-	err := r.client.RuleUpdate(plan.ID.ValueString(), &ruleUpdateRequest)
+	ruleUpdateRequest := elves.Rule{
+		RuleType:                plan.RuleType.ValueString(),
+		Policy:                  plan.Policy.ValueString(),
+		Identifier:              plan.Identifier.ValueString(),
+		CustomMsg:               plan.CustomMessage.ValueString(),
+		CelExpr:                 plan.CelExpression.ValueString(),
+		IsDefault:               plan.IsDefault.ValueBool(),
+		Description:             plan.Description.ValueString(),
+		RemediationInstructions: plan.RemediationInstructions.ValueString(),
+		RemediationScript:       current.RemediationScript,
+	}
+
+	err = r.client.RuleUpdate(plan.ID.ValueString(), &ruleUpdateRequest)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Error creating rule",
-			"Could not create rule, unexpected error: "+err.Error(),
+			"Error updating rule",
+			"Could not update rule, unexpected error: "+err.Error(),
 		)
 		return
 	}

@@ -176,6 +176,8 @@ func (p *elvesProvider) Configure(ctx context.Context, req provider.ConfigureReq
 func (p *elvesProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		RulesDataSource,
+		ScimGroupDataSource,
+		ConfigurationDataSource,
 	}
 }
 
@@ -183,5 +185,10 @@ func (p *elvesProvider) DataSources(_ context.Context) []func() datasource.DataS
 func (p *elvesProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		RulesResource,
+		ScimGroupRuleResource,
+		ClientRuleResource,
+		ScimUserRuleResource,
+		ConfigRuleResource,
+		ConfigurationResource,
 	}
 }

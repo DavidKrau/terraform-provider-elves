@@ -47,6 +47,8 @@ func TestAccRuleResource(t *testing.T) {
   					custommessage = "thsi is new test message"
   					isdefault= "false"
 					celexpression = "aaabbbddd"
+					description = "this is test description"
+					remediation_instructions = "these are test instructions"
 				  }
 `,
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -57,6 +59,9 @@ func TestAccRuleResource(t *testing.T) {
 					resource.TestCheckResourceAttr("elves_rule.rule", "custommessage", "thsi is new test message"),
 					resource.TestCheckResourceAttr("elves_rule.rule", "isdefault", "false"),
 					resource.TestCheckResourceAttr("elves_rule.rule", "celexpression", "aaabbbddd"),
+					resource.TestCheckResourceAttr("elves_rule.rule", "description", "this is test description"),
+					resource.TestCheckResourceAttr("elves_rule.rule", "remediation_instructions", "these are test instructions"),
+					resource.TestCheckResourceAttr("elves_rule.rule", "remediation_script", ""),
 				),
 			},
 			// Delete testing automatically occurs in TestCase
