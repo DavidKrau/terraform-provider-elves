@@ -190,5 +190,7 @@ func (p *elvesProvider) Resources(_ context.Context) []func() resource.Resource 
 		ScimUserRuleResource,
 		ConfigRuleResource,
 		ConfigurationResource,
+		FAARuleResource,
+		FAASettingsResource,
 	}
 }
