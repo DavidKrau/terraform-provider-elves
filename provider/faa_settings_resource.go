@@ -6,9 +6,11 @@ import (
 
 	"github.com/DavidKrau/elves-go-client"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -31,13 +33,18 @@ type faaSettingsResourceModel struct {
 	Version         types.String `tfsdk:"version"`
 	EventDetailURL  types.String `tfsdk:"event_detail_url"`
 	EventDetailText types.String `tfsdk:"event_detail_text"`
+	// A types.List, as it is unknown on create when left out
+	DefaultProcesses types.List `tfsdk:"default_processes"`
 }
 
-func (m *faaSettingsResourceModel) fromAPI(s *elves.FAASettings) {
+func (m *faaSettingsResourceModel) fromAPI(ctx context.Context, s *elves.FAASettings) diag.Diagnostics {
 	m.ID = types.StringValue(faaSettingsID)
 	m.Version = types.StringValue(s.Version)
 	m.EventDetailURL = types.StringValue(s.EventDetailURL)
 	m.EventDetailText = types.StringValue(s.EventDetailText)
+	var diags diag.Diagnostics
+	m.DefaultProcesses, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: faaProcessAttrTypes}, processesFromAPI(s.DefaultProcesses))
+	return diags
 }
 
 // FAASettingsResource is a helper function to simplify the provider implementation.
@@ -96,6 +103,16 @@ func (r *faaSettingsResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Validators:    []validator.String{stringvalidator.UTF8LengthAtMost(48)},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
+			"default_processes": schema.ListNestedAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "Optional. Processes that must reach all protected files, such as the EDR or antivirus agent and Spotlight " +
+					"(`com.apple.mds`, `platform:com.apple.mds`, `com.apple.mdworker_shared`). Elves adds them to every `PathsWithAllowedProcesses` " +
+					"`elves_faa_rule` when it exports the policy, unless the rule sets `skip_default_processes`. Other rule types don't get them. " +
+					"Left out, the current list is kept; set `[]` to clear it.",
+				NestedObject:  schema.NestedAttributeObject{Attributes: faaProcessAttributes()},
+				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
+			},
 		},
 	}
 }
@@ -106,10 +123,11 @@ func (r *faaSettingsResource) ImportState(ctx context.Context, _ resource.Import
 }
 
 // save writes the plan, keeping the current value of attributes left out
-func (r *faaSettingsResource) save(plan *faaSettingsResourceModel) error {
+func (r *faaSettingsResource) save(ctx context.Context, plan *faaSettingsResourceModel, diags *diag.Diagnostics) {
 	current, err := r.client.FAASettingsGet()
 	if err != nil {
-		return err
+		diags.AddError("Error saving FAA settings", "Could not read the current FAA settings: "+err.Error())
+		return
 	}
 	settings := *current
 	if !plan.EventDetailURL.IsUnknown() {
@@ -118,13 +136,21 @@ func (r *faaSettingsResource) save(plan *faaSettingsResourceModel) error {
 	if !plan.EventDetailText.IsUnknown() {
 		settings.EventDetailText = plan.EventDetailText.ValueString()
 	}
+	if !plan.DefaultProcesses.IsUnknown() && !plan.DefaultProcesses.IsNull() {
+		var processes []faaProcessModel
+		diags.Append(plan.DefaultProcesses.ElementsAs(ctx, &processes, false)...)
+		if diags.HasError() {
+			return
+		}
+		settings.DefaultProcesses = processesToAPI(processes)
+	}
 	// The current version, so Elves bumps it
 	saved, err := r.client.FAASettingsUpdate(&settings)
 	if err != nil {
-		return err
+		diags.AddError("Error saving FAA settings", "Could not save FAA settings, unexpected error: "+err.Error())
+		return
 	}
-	plan.fromAPI(saved)
-	return nil
+	diags.Append(plan.fromAPI(ctx, saved)...)
 }
 
 func (r *faaSettingsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -134,8 +160,8 @@ func (r *faaSettingsResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	if err := r.save(&plan); err != nil {
-		resp.Diagnostics.AddError("Error saving FAA settings", "Could not save FAA settings, unexpected error: "+err.Error())
+	r.save(ctx, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
@@ -153,7 +179,7 @@ func (r *faaSettingsResource) Read(ctx context.Context, req resource.ReadRequest
 		resp.Diagnostics.AddError("Error reading FAA settings", "Could not read FAA settings: "+err.Error())
 		return
 	}
-	state.fromAPI(settings)
+	resp.Diagnostics.Append(state.fromAPI(ctx, settings)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -164,8 +190,8 @@ func (r *faaSettingsResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	if err := r.save(&plan); err != nil {
-		resp.Diagnostics.AddError("Error saving FAA settings", "Could not save FAA settings, unexpected error: "+err.Error())
+	r.save(ctx, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
