@@ -28,6 +28,7 @@ resource "elves_faa_rule" "rule" {
 					resource.TestCheckNoResourceAttr("elves_faa_rule.rule", "processes.0.platform_binary"),
 					resource.TestCheckResourceAttr("elves_faa_rule.rule", "audit_only", "true"),
 					resource.TestCheckResourceAttr("elves_faa_rule.rule", "parent_directory_protection", "enforce"),
+					resource.TestCheckResourceAttr("elves_faa_rule.rule", "skip_default_processes", "false"),
 				),
 			},
 			// ImportState testing
@@ -58,6 +59,7 @@ resource "elves_faa_rule" "rule" {
   event_detail_url            = "https://example.com/faa"
   event_detail_text           = "Details"
   description                 = "Terraform acceptance test"
+  skip_default_processes      = true
 }
 `,
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -70,6 +72,7 @@ resource "elves_faa_rule" "rule" {
 					resource.TestCheckResourceAttr("elves_faa_rule.rule", "audit_only", "false"),
 					resource.TestCheckResourceAttr("elves_faa_rule.rule", "parent_directory_protection", "disabled"),
 					resource.TestCheckResourceAttr("elves_faa_rule.rule", "event_detail_text", "Details"),
+					resource.TestCheckResourceAttr("elves_faa_rule.rule", "skip_default_processes", "true"),
 				),
 			},
 			// Delete testing automatically occurs in TestCase
@@ -81,6 +84,7 @@ func TestAccFAASettingsResource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
+			// Left out, the default processes keep their current value
 			{
 				Config: providerConfig + `
 resource "elves_faa_settings" "this" {
@@ -91,6 +95,24 @@ resource "elves_faa_settings" "this" {
 					resource.TestCheckResourceAttr("elves_faa_settings.this", "id", "faa_settings"),
 					resource.TestCheckResourceAttrSet("elves_faa_settings.this", "version"),
 					resource.TestCheckResourceAttr("elves_faa_settings.this", "event_detail_text", "Test details"),
+					resource.TestCheckResourceAttrSet("elves_faa_settings.this", "default_processes.#"),
+				),
+			},
+			{
+				Config: providerConfig + `
+resource "elves_faa_settings" "this" {
+  event_detail_text = "Test details"
+  default_processes = [
+    { team_id = "4AYE5J54KN", signing_id = "com.sentinelone.sentineld-helper" },
+    { signing_id = "platform:com.apple.mds", platform_binary = true },
+  ]
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("elves_faa_settings.this", "default_processes.#", "2"),
+					resource.TestCheckResourceAttr("elves_faa_settings.this", "default_processes.0.team_id", "4AYE5J54KN"),
+					resource.TestCheckResourceAttr("elves_faa_settings.this", "default_processes.1.platform_binary", "true"),
+					resource.TestCheckNoResourceAttr("elves_faa_settings.this", "default_processes.1.team_id"),
 				),
 			},
 			{
@@ -98,6 +120,16 @@ resource "elves_faa_settings" "this" {
 				ImportState:       true,
 				ImportStateId:     "faa_settings",
 				ImportStateVerify: true,
+			},
+			// An empty list clears them
+			{
+				Config: providerConfig + `
+resource "elves_faa_settings" "this" {
+  event_detail_text = "Test details"
+  default_processes = []
+}
+`,
+				Check: resource.TestCheckResourceAttr("elves_faa_settings.this", "default_processes.#", "0"),
 			},
 		},
 	})

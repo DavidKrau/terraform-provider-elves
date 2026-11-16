@@ -13,7 +13,7 @@ Manages a Santa File Access Authorization (FAA) rule, one `WatchItems` entry of 
 ## Example Usage
 
 ```terraform
-# Only Slack (and Spotlight) may read or write Slack's cookies
+# Only Slack (and the default processes) may read or write Slack's cookies
 resource "elves_faa_rule" "slack_cookies" {
   name      = "SlackCookies"
   rule_type = "PathsWithAllowedProcesses"
@@ -23,10 +23,9 @@ resource "elves_faa_rule" "slack_cookies" {
     { path = "/Users/*/Library/Containers/com.tinyspeck.slackmacgap/Data/Library/Application Support/Slack/Cookies", is_prefix = true },
   ]
 
+  # The default processes of elves_faa_settings (EDR, Spotlight) are added too
   processes = [
     { team_id = "BQR82RBBHL", signing_id = "com.tinyspeck.slackmacgap*" },
-    { signing_id = "com.apple.mdworker_shared", platform_binary = true },
-    { signing_id = "com.apple.mds", platform_binary = true },
   ]
 
   # Block, not only log, other processes. Defaults to true.
@@ -44,7 +43,7 @@ resource "elves_faa_rule" "slack_cookies" {
 
 - `name` (String) Required. Unique name of the rule, the `WatchItems` key in the policy. 1-64 letters, digits and `. _ : -`.
 - `paths` (Attributes List) Required. Paths the rule watches. At least one. (see [below for nested schema](#nestedatt--paths))
-- `processes` (Attributes List) Required. Processes the rule applies to. At least one. A process matches only if every attribute that is set matches; set at least one of them. (see [below for nested schema](#nestedatt--processes))
+- `processes` (Attributes List) Required. Processes the rule applies to. At least one. A process matches only if every attribute that is set matches; set at least one of them. For `PathsWithAllowedProcesses` rules, Elves adds the default processes of `elves_faa_settings` on export, so they don't need to be listed here. (see [below for nested schema](#nestedatt--processes))
 - `rule_type` (String) Required. `PathsWithAllowedProcesses` or `PathsWithDeniedProcesses` protect the paths from all but (or only from) the processes; `ProcessesWithAllowedPaths` or `ProcessesWithDeniedPaths` limit the processes to (or keep them from) the paths.
 
 ### Optional
@@ -58,6 +57,7 @@ resource "elves_faa_rule" "slack_cookies" {
 - `event_detail_text` (String) Optional. Label of the dialog's button, at most 48 characters. Empty (the default) for the policy's.
 - `event_detail_url` (String) Optional. URL the dialog's button opens, overrides the policy's (see `elves_faa_settings`). Must start with `https://`, may use Santa's placeholders. Empty (the default) for the policy's.
 - `parent_directory_protection` (String) Optional. Whether Santa also guards renaming or deleting the paths' parent directories: `audit`, `enforce` or `disabled`. Only used by `Paths*` rules. Elves sets `enforce` on new `Paths*` rules that leave it out.
+- `skip_default_processes` (Boolean) Optional. Don't add the policy's default processes (`default_processes` of `elves_faa_settings`, such as the EDR agent) to this rule. Only `PathsWithAllowedProcesses` rules get them, so it has no effect on other rule types. Defaults to false.
 
 ### Read-Only
 

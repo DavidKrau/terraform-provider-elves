@@ -8,6 +8,7 @@ import (
 	"github.com/DavidKrau/elves-go-client"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -65,7 +66,78 @@ type faaRuleResourceModel struct {
 	EventDetailURL            types.String      `tfsdk:"event_detail_url"`
 	EventDetailText           types.String      `tfsdk:"event_detail_text"`
 	Description               types.String      `tfsdk:"description"`
+	SkipDefaultProcesses      types.Bool        `tfsdk:"skip_default_processes"`
 	Warnings                  types.List        `tfsdk:"warnings"`
+}
+
+// faaProcessAttrTypes is the object type of a process, for lists of processes held in a types.List
+var faaProcessAttrTypes = map[string]attr.Type{
+	"signing_id":         types.StringType,
+	"team_id":            types.StringType,
+	"platform_binary":    types.BoolType,
+	"cd_hash":            types.StringType,
+	"certificate_sha256": types.StringType,
+	"binary_path":        types.StringType,
+}
+
+// faaProcessAttributes is the schema of one process, shared by rules and the default processes
+func faaProcessAttributes() map[string]schema.Attribute {
+	processString := func(description string, validators ...validator.String) schema.StringAttribute {
+		return schema.StringAttribute{Optional: true, Description: description, Validators: append([]validator.String{stringvalidator.LengthAtLeast(1)}, validators...)}
+	}
+	return map[string]schema.Attribute{
+		"signing_id": processString("Optional. Signing ID, may end in `*`. A wildcard needs `team_id`, `platform_binary` or a `TEAMID:` or `platform:` prefix."),
+		"team_id": processString("Optional. Team ID, 10 uppercase letters or digits.",
+			stringvalidator.RegexMatches(regexp.MustCompile(`^[A-Z0-9]{10}$`), "must be 10 uppercase letters or digits")),
+		"platform_binary": schema.BoolAttribute{
+			Optional:    true,
+			Description: "Optional. Whether the process must be (true) or must not be (false) an Apple platform binary.",
+		},
+		"cd_hash": processString("Optional. CDHash, 40 hex characters.",
+			stringvalidator.RegexMatches(regexp.MustCompile(`^[0-9a-fA-F]{40}$`), "must be 40 hex characters")),
+		"certificate_sha256": processString("Optional. SHA-256 of the leaf signing certificate, 64 hex characters.",
+			stringvalidator.RegexMatches(regexp.MustCompile(`^[0-9a-fA-F]{64}$`), "must be 64 hex characters")),
+		"binary_path": processString("Optional. Absolute path of the binary, without globs.",
+			stringvalidator.RegexMatches(regexp.MustCompile(`^/[^*?\[]*$`), "must be an absolute path without globs")),
+	}
+}
+
+func processesToAPI(models []faaProcessModel) []elves.FAAProcess {
+	processes := []elves.FAAProcess{}
+	for _, p := range models {
+		process := elves.FAAProcess{
+			SigningID:         p.SigningID.ValueString(),
+			TeamID:            p.TeamID.ValueString(),
+			CDHash:            p.CDHash.ValueString(),
+			CertificateSha256: p.CertificateSha256.ValueString(),
+			BinaryPath:        p.BinaryPath.ValueString(),
+		}
+		if !p.PlatformBinary.IsNull() && !p.PlatformBinary.IsUnknown() {
+			pb := p.PlatformBinary.ValueBool()
+			process.PlatformBinary = &pb
+		}
+		processes = append(processes, process)
+	}
+	return processes
+}
+
+func processesFromAPI(processes []elves.FAAProcess) []faaProcessModel {
+	models := make([]faaProcessModel, 0, len(processes))
+	for _, p := range processes {
+		process := faaProcessModel{
+			SigningID:         nullIfEmpty(p.SigningID),
+			TeamID:            nullIfEmpty(p.TeamID),
+			PlatformBinary:    types.BoolNull(),
+			CDHash:            nullIfEmpty(p.CDHash),
+			CertificateSha256: nullIfEmpty(p.CertificateSha256),
+			BinaryPath:        nullIfEmpty(p.BinaryPath),
+		}
+		if p.PlatformBinary != nil {
+			process.PlatformBinary = types.BoolValue(*p.PlatformBinary)
+		}
+		models = append(models, process)
+	}
+	return models
 }
 
 // nullIfEmpty maps the API's empty strings to null, for optional attributes without a default
@@ -81,7 +153,7 @@ func (m faaRuleResourceModel) toAPI() elves.FAARule {
 		Name:            m.Name.ValueString(),
 		RuleType:        m.RuleType.ValueString(),
 		Paths:           []elves.FAAPath{},
-		Processes:       []elves.FAAProcess{},
+		Processes:       processesToAPI(m.Processes),
 		AllowReadAccess: m.AllowReadAccess.ValueBool(),
 		AuditOnly:       m.AuditOnly.ValueBool(),
 		// Unknown (not set on create) is sent empty, so Elves picks the default
@@ -92,23 +164,10 @@ func (m faaRuleResourceModel) toAPI() elves.FAARule {
 		EventDetailURL:            m.EventDetailURL.ValueString(),
 		EventDetailText:           m.EventDetailText.ValueString(),
 		Description:               m.Description.ValueString(),
+		SkipDefaultProcesses:      m.SkipDefaultProcesses.ValueBool(),
 	}
 	for _, p := range m.Paths {
 		rule.Paths = append(rule.Paths, elves.FAAPath{Path: p.Path.ValueString(), IsPrefix: p.IsPrefix.ValueBool()})
-	}
-	for _, p := range m.Processes {
-		process := elves.FAAProcess{
-			SigningID:         p.SigningID.ValueString(),
-			TeamID:            p.TeamID.ValueString(),
-			CDHash:            p.CDHash.ValueString(),
-			CertificateSha256: p.CertificateSha256.ValueString(),
-			BinaryPath:        p.BinaryPath.ValueString(),
-		}
-		if !p.PlatformBinary.IsNull() && !p.PlatformBinary.IsUnknown() {
-			pb := p.PlatformBinary.ValueBool()
-			process.PlatformBinary = &pb
-		}
-		rule.Processes = append(rule.Processes, process)
 	}
 	return rule
 }
@@ -121,21 +180,7 @@ func (m *faaRuleResourceModel) fromAPI(ctx context.Context, rule *elves.FAARule)
 	for _, p := range rule.Paths {
 		m.Paths = append(m.Paths, faaPathModel{Path: types.StringValue(p.Path), IsPrefix: types.BoolValue(p.IsPrefix)})
 	}
-	m.Processes = make([]faaProcessModel, 0, len(rule.Processes))
-	for _, p := range rule.Processes {
-		process := faaProcessModel{
-			SigningID:         nullIfEmpty(p.SigningID),
-			TeamID:            nullIfEmpty(p.TeamID),
-			PlatformBinary:    types.BoolNull(),
-			CDHash:            nullIfEmpty(p.CDHash),
-			CertificateSha256: nullIfEmpty(p.CertificateSha256),
-			BinaryPath:        nullIfEmpty(p.BinaryPath),
-		}
-		if p.PlatformBinary != nil {
-			process.PlatformBinary = types.BoolValue(*p.PlatformBinary)
-		}
-		m.Processes = append(m.Processes, process)
-	}
+	m.Processes = processesFromAPI(rule.Processes)
 	m.AllowReadAccess = types.BoolValue(rule.AllowReadAccess)
 	m.AuditOnly = types.BoolValue(rule.AuditOnly)
 	m.ParentDirectoryProtection = types.StringValue(rule.ParentDirectoryProtection)
@@ -145,6 +190,7 @@ func (m *faaRuleResourceModel) fromAPI(ctx context.Context, rule *elves.FAARule)
 	m.EventDetailURL = types.StringValue(rule.EventDetailURL)
 	m.EventDetailText = types.StringValue(rule.EventDetailText)
 	m.Description = types.StringValue(rule.Description)
+	m.SkipDefaultProcesses = types.BoolValue(rule.SkipDefaultProcesses)
 
 	warnings := rule.Warnings
 	if warnings == nil {
@@ -194,9 +240,6 @@ func (r *faaRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 	optionalBool := func(description string, def bool) schema.BoolAttribute {
 		return schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(def), Description: description}
 	}
-	processString := func(description string, validators ...validator.String) schema.StringAttribute {
-		return schema.StringAttribute{Optional: true, Description: description, Validators: append([]validator.String{stringvalidator.LengthAtLeast(1)}, validators...)}
-	}
 	resp.Schema = schema.Schema{
 		Description: "Manages a Santa File Access Authorization (FAA) rule, one `WatchItems` entry of the FAA policy that Elves exports into the Santa MDM profile. " +
 			"Every change bumps the policy version (see `elves_faa_settings`). " +
@@ -242,25 +285,10 @@ func (r *faaRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"processes": schema.ListNestedAttribute{
 				Required: true,
 				Description: "Required. Processes the rule applies to. At least one. A process matches only if every attribute that is set matches; " +
-					"set at least one of them.",
-				Validators: []validator.List{listvalidator.SizeAtLeast(1)},
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"signing_id": processString("Optional. Signing ID, may end in `*`. A wildcard needs `team_id`, `platform_binary` or a `TEAMID:` or `platform:` prefix."),
-						"team_id": processString("Optional. Team ID, 10 uppercase letters or digits.",
-							stringvalidator.RegexMatches(regexp.MustCompile(`^[A-Z0-9]{10}$`), "must be 10 uppercase letters or digits")),
-						"platform_binary": schema.BoolAttribute{
-							Optional:    true,
-							Description: "Optional. Whether the process must be (true) or must not be (false) an Apple platform binary.",
-						},
-						"cd_hash": processString("Optional. CDHash, 40 hex characters.",
-							stringvalidator.RegexMatches(regexp.MustCompile(`^[0-9a-fA-F]{40}$`), "must be 40 hex characters")),
-						"certificate_sha256": processString("Optional. SHA-256 of the leaf signing certificate, 64 hex characters.",
-							stringvalidator.RegexMatches(regexp.MustCompile(`^[0-9a-fA-F]{64}$`), "must be 64 hex characters")),
-						"binary_path": processString("Optional. Absolute path of the binary, without globs.",
-							stringvalidator.RegexMatches(regexp.MustCompile(`^/[^*?\[]*$`), "must be an absolute path without globs")),
-					},
-				},
+					"set at least one of them. For `PathsWithAllowedProcesses` rules, Elves adds the default processes of `elves_faa_settings` " +
+					"on export, so they don't need to be listed here.",
+				Validators:   []validator.List{listvalidator.SizeAtLeast(1)},
+				NestedObject: schema.NestedAttributeObject{Attributes: faaProcessAttributes()},
 			},
 			"allow_read_access": optionalBool("Optional. Let every process read the paths, only writes are checked. Defaults to false.", false),
 			"audit_only":        optionalBool("Optional. Only log accesses the rule would deny, as Santa does by default. Set to false to block them. Defaults to true.", true),
@@ -280,6 +308,8 @@ func (r *faaRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"event_detail_text": optionalString("Optional. Label of the dialog's button, at most 48 characters. Empty (the default) for the policy's.",
 				stringvalidator.UTF8LengthAtMost(48)),
 			"description": optionalString("Optional. Shown to users on the Elves FAA event page, not sent to Santa. Empty (the default) for none."),
+			"skip_default_processes": optionalBool("Optional. Don't add the policy's default processes (`default_processes` of `elves_faa_settings`, such as the EDR agent) to this rule. "+
+				"Only `PathsWithAllowedProcesses` rules get them, so it has no effect on other rule types. Defaults to false.", false),
 			"warnings": schema.ListAttribute{
 				Computed:    true,
 				ElementType: types.StringType,

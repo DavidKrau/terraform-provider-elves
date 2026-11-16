@@ -15,8 +15,18 @@ Manages the settings of the Santa File Access Authorization (FAA) policy that El
 ```terraform
 # There is one set of FAA settings, declare it at most once
 resource "elves_faa_settings" "this" {
-  event_detail_url  = "https://elves.example.com/faa/?machine=%machine_id%"
-  event_detail_text = "More info"
+  event_detail_url  = "https://elves.example.com/v1/www/rules/?machine=%machine_id%&rule=%rule_name%"
+  event_detail_text = "Details"
+
+  # Added to every PathsWithAllowedProcesses rule, so they aren't repeated in each
+  default_processes = [
+    # EDR agent
+    { team_id = "4AYE5J54KN", signing_id = "com.sentinelone.sentineld-helper" },
+    # Spotlight
+    { signing_id = "com.apple.mds", platform_binary = true },
+    { signing_id = "platform:com.apple.mds", platform_binary = true },
+    { signing_id = "com.apple.mdworker_shared", platform_binary = true },
+  ]
 }
 ```
 
@@ -25,6 +35,7 @@ resource "elves_faa_settings" "this" {
 
 ### Optional
 
+- `default_processes` (Attributes List) Optional. Processes that must reach all protected files, such as the EDR or antivirus agent and Spotlight (`com.apple.mds`, `platform:com.apple.mds`, `com.apple.mdworker_shared`). Elves adds them to every `PathsWithAllowedProcesses` `elves_faa_rule` when it exports the policy, unless the rule sets `skip_default_processes`. Other rule types don't get them. Left out, the current list is kept; set `[]` to clear it. (see [below for nested schema](#nestedatt--default_processes))
 - `event_detail_text` (String) Optional. Label of the block dialog's button, at most 48 characters, for rules that don't set their own. Left out, the current value is kept.
 - `event_detail_url` (String) Optional. URL the block dialog's button opens, for rules that don't set their own. Must start with `https://`, may use Santa's placeholders. Elves defaults it to its FAA event page; left out, the current value is kept. Set to empty for no button.
 
@@ -32,6 +43,18 @@ resource "elves_faa_settings" "this" {
 
 - `id` (String) Always `faa_settings`.
 - `version` (String) The policy version, read only. Elves increments it on every change to an FAA rule or these settings, so Santa reloads the policy.
+
+<a id="nestedatt--default_processes"></a>
+### Nested Schema for `default_processes`
+
+Optional:
+
+- `binary_path` (String) Optional. Absolute path of the binary, without globs.
+- `cd_hash` (String) Optional. CDHash, 40 hex characters.
+- `certificate_sha256` (String) Optional. SHA-256 of the leaf signing certificate, 64 hex characters.
+- `platform_binary` (Boolean) Optional. Whether the process must be (true) or must not be (false) an Apple platform binary.
+- `signing_id` (String) Optional. Signing ID, may end in `*`. A wildcard needs `team_id`, `platform_binary` or a `TEAMID:` or `platform:` prefix.
+- `team_id` (String) Optional. Team ID, 10 uppercase letters or digits.
 
 ## Import
 
