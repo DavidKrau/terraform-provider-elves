@@ -75,6 +75,21 @@ resource "elves_faa_rule" "rule" {
 					resource.TestCheckResourceAttr("elves_faa_rule.rule", "skip_default_processes", "true"),
 				),
 			},
+			// A PathsWithAllowedProcesses rule may rely on the default processes alone
+			{
+				Config: providerConfig + `
+resource "elves_faa_rule" "rule" {
+  name      = "TerraformTest2"
+  rule_type = "PathsWithAllowedProcesses"
+  paths     = [{ path = "/usr/local/lib/node_modules/openclaw", is_prefix = true }]
+  processes = []
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("elves_faa_rule.rule", "processes.#", "0"),
+					resource.TestCheckResourceAttr("elves_faa_rule.rule", "skip_default_processes", "false"),
+				),
+			},
 			// Delete testing automatically occurs in TestCase
 		},
 	})

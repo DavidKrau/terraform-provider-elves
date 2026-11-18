@@ -43,7 +43,7 @@ resource "elves_faa_rule" "slack_cookies" {
 
 - `name` (String) Required. Unique name of the rule, the `WatchItems` key in the policy. 1-64 letters, digits and `. _ : -`.
 - `paths` (Attributes List) Required. Paths the rule watches. At least one. (see [below for nested schema](#nestedatt--paths))
-- `processes` (Attributes List) Required. Processes the rule applies to. At least one. A process matches only if every attribute that is set matches; set at least one of them. For `PathsWithAllowedProcesses` rules, Elves adds the default processes of `elves_faa_settings` on export, so they don't need to be listed here. (see [below for nested schema](#nestedatt--processes))
+- `processes` (Attributes List) Required. Processes the rule applies to. A process matches only if every attribute that is set matches; set at least one of them. For `PathsWithAllowedProcesses` rules, Elves adds the default processes of `elves_faa_settings` on export, so they don't need to be listed here, and such a rule may set `processes = []` to allow only the default processes (Elves refuses it while there are none). Other rules, and rules with `skip_default_processes`, need at least one process. (see [below for nested schema](#nestedatt--processes))
 - `rule_type` (String) Required. `PathsWithAllowedProcesses` or `PathsWithDeniedProcesses` protect the paths from all but (or only from) the processes; `ProcessesWithAllowedPaths` or `ProcessesWithDeniedPaths` limit the processes to (or keep them from) the paths.
 
 ### Optional
