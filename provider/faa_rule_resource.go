@@ -284,10 +284,10 @@ func (r *faaRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			},
 			"processes": schema.ListNestedAttribute{
 				Required: true,
-				Description: "Required. Processes the rule applies to. At least one. A process matches only if every attribute that is set matches; " +
+				Description: "Required. Processes the rule applies to. A process matches only if every attribute that is set matches; " +
 					"set at least one of them. For `PathsWithAllowedProcesses` rules, Elves adds the default processes of `elves_faa_settings` " +
-					"on export, so they don't need to be listed here.",
-				Validators:   []validator.List{listvalidator.SizeAtLeast(1)},
+					"on export, so they don't need to be listed here, and such a rule may set `processes = []` to allow only the default processes " +
+					"(Elves refuses it while there are none). Other rules, and rules with `skip_default_processes`, need at least one process.",
 				NestedObject: schema.NestedAttributeObject{Attributes: faaProcessAttributes()},
 			},
 			"allow_read_access": optionalBool("Optional. Let every process read the paths, only writes are checked. Defaults to false.", false),
